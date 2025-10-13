@@ -105,6 +105,8 @@
       <div class="btns">
         <button class="btn primary" id="parse">Ler & Detectar colunas</button>
         <button class="btn secondary" id="sample">Exemplo rápido</button>
+        <!-- NOVO: botão limpar dados -->
+        <button class="btn secondary" id="clearData">Limpar dados</button>
       </div>
       <div class="footer">
         <div class="bar" style="margin-top:8px"><span id="bar" style="width:0%"></span></div>
@@ -141,17 +143,38 @@ const SLOT_KEY = 'desafios_slots_v1';
 function initSlots(){
   const sel = byId('slot');
   sel.innerHTML = '';
+  const data = loadAllSlots();
   for(let i=1;i<=30;i++){
     const opt = document.createElement('option');
     opt.value = String(i);
-    opt.textContent = `Slot ${i}`;
+    // se já existir slot salvo, mostrar "Slot i — Nome (Data)"
+    const label = slotLabel(i, data[i]?.meta);
+    opt.textContent = label;
     sel.appendChild(opt);
   }
   refreshSlotInfo();
 }
+
+// rótulo dinâmico do slot
+function slotLabel(i, meta){
+  if(meta && meta.name && meta.date){
+    return `Slot ${i} — ${meta.name} (${meta.date})`;
+  }
+  return `Slot ${i}`;
+}
+
 function loadAllSlots(){ try{ const raw = localStorage.getItem(SLOT_KEY); return raw ? JSON.parse(raw) : {}; }catch(e){ return {}; } }
 function saveAllSlots(data){ localStorage.setItem(SLOT_KEY, JSON.stringify(data)); refreshSlotInfo(); }
 function refreshSlotInfo(){ const data = loadAllSlots(); const used = Object.keys(data).length; byId('slotInfo').textContent = `${used} de 30 slots usados`; }
+
+// Atualiza rótulo visual do slot após salvar
+function updateSlotOptionLabel(slot, meta){
+  const sel = byId('slot');
+  const idx = Math.max(0, Math.min(sel.options.length-1, slot-1));
+  if(sel.options[idx]){
+    sel.options[idx].textContent = slotLabel(slot, meta);
+  }
+}
 
 /* ===================== PARSE DE ENTRADA ===================== */
 function parsePasted(raw){
@@ -398,16 +421,23 @@ function downloadXLSX(matrix, filename){
 
 const state = { rows: [], schema: null };
 function currentMeta(){ const slot = clamp(parseInt(byId('slot').value||'1',10),1,30); const name = byId('name').value.trim(); const date = byId('date').value; return {slot, name, date}; }
+
 function saveSlot(){
   const {slot, name, date} = currentMeta();
   if(!name){ alert('Informe o nome do desafio.'); return; }
   if(!date){ alert('Informe a data do desafio.'); return; }
   if(!state.rows.length || !state.schema){ alert('Cole e leia os dados antes de salvar o slot.'); return; }
+
   const data = loadAllSlots();
   data[slot] = { meta:{name,date,ts:Date.now()}, rows: state.rows, schema: state.schema };
   saveAllSlots(data);
+
+  // NOVO: atualizar rótulo visual do slot com nome e data
+  updateSlotOptionLabel(slot, data[slot].meta);
+
   alert(`Slot ${slot} salvo com sucesso.`);
 }
+
 function loadSlot(){
   const slot = clamp(parseInt(byId('slot').value||'1',10),1,30);
   const data = loadAllSlots();
@@ -425,16 +455,25 @@ function loadSlot(){
     byId('previewCard').style.display='none';
   }
 }
+
 function clearSlot(){
   const slot = clamp(parseInt(byId('slot').value||'1',10),1,30);
   const data = loadAllSlots();
-  if(data[slot]){ delete data[slot]; saveAllSlots(data); alert(`Slot ${slot} limpo.`); }
-  else alert('Slot já está vazio.');
+  if(data[slot]){
+    delete data[slot];
+    saveAllSlots(data);
+    // Atualiza rótulo para padrão
+    updateSlotOptionLabel(slot, null);
+    alert(`Slot ${slot} limpo.`);
+  }else{
+    alert('Slot já está vazio.');
+  }
 }
+
 function wipeAll(){
   if(confirm('Apagar TODOS os 30 slots salvos? Esta ação não pode ser desfeita.')){
     localStorage.removeItem(SLOT_KEY);
-    refreshSlotInfo();
+    initSlots();
     alert('Todos os slots foram apagados.');
   }
 }
@@ -471,6 +510,28 @@ function autoParseNow(){
   updateStatus('Dados lidos com sucesso!', 100);
 }
 
+/* ===================== LIMPAR DADOS / RESET AO TROCAR SLOT ===================== */
+// NOVO: limpar somente os dados colados/prévia
+function clearDataOnly(){
+  byId('paste').value = '';
+  byId('status').textContent = 'Aguardando colagem…';
+  byId('bar').style.width = '0%';
+  byId('previewCard').style.display='none';
+  byId('thead').innerHTML = '';
+  byId('tbody').innerHTML = '';
+  byId('detectedHeads').textContent = '';
+  byId('prodTag').textContent = '0 produtos';
+  state.rows = [];
+  state.schema = null;
+}
+
+// NOVO: ao mudar o slot, esvaziar TUDO (meta + dados)
+function resetAllFields(){
+  byId('name').value = '';
+  byId('date').value = '';
+  clearDataOnly();
+}
+
 /* ======= Botões / Eventos ======= */
 byId('parse').addEventListener('click', autoParseNow);
 byId('exportCSV').addEventListener('click', ()=>{
@@ -498,6 +559,12 @@ byId('saveSlot').addEventListener('click', saveSlot);
 byId('loadSlot').addEventListener('click', loadSlot);
 byId('clearSlot').addEventListener('click', clearSlot);
 byId('wipeAll').addEventListener('click', wipeAll);
+
+// NOVO: botão limpar dados
+byId('clearData').addEventListener('click', clearDataOnly);
+
+// NOVO: ao trocar o slot, limpar tudo
+byId('slot').addEventListener('change', resetAllFields);
 
 /* Disparo automático ao colar / digitar no textarea */
 const pasteArea = byId('paste');
