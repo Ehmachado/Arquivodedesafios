@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Registro de Participação por Desafio — 30 Slots</title>
+
+<!-- SheetJS p/ XLSX, FileSaver p/ downloads -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+
+<style>
+  :root{
+    --bb-azul:#0033a0; --bb-amarelo:#ffcc00;
+    --bg:#f6f7fb; --card:#fff; --muted:#6b7280; --ok:#16a34a; --warn:#b45309; --bad:#dc2626;
+    --radius:16px
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:#111}
+  header{padding:20px 16px;background:linear-gradient(90deg,var(--bb-azul),#1e3a8a);color:#fff}
+  header h1{margin:0;font-size:20px;font-weight:700}
+  header p{margin:6px 0 0;font-size:13px;opacity:.9}
+
+  .wrap{max-width:1200px;margin:18px auto;padding:0 12px 28px}
+  .grid{display:grid;grid-template-columns:1fr;gap:16px}
+  @media(min-width:980px){.grid{grid-template-columns:340px 1fr}}
+
+  .card{background:var(--card);border-radius:var(--radius);box-shadow:0 6px 24px rgba(0,0,0,.06);padding:16px}
+  .card h2{margin:0 0 10px;font-size:16px}
+  label{display:block;font-size:13px;color:#374151;margin:8px 0 6px}
+  input,select,button,textarea{
+    width:100%;padding:10px 12px;border-radius:12px;border:1px solid #e5e7eb;background:#fff;font-size:14px
+  }
+  textarea{min-height:180px;resize:vertical;font-family:ui-monospace,Consolas,monospace}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .btn{
+    border:none;cursor:pointer;font-weight:600
+  }
+  .btn.primary{background:var(--bb-azul);color:#fff}
+  .btn.secondary{background:#e5e7eb}
+  .btn.warn{background:var(--warn);color:#fff}
+  .btn.ok{background:var(--ok);color:#fff}
+  .btn.bad{background:var(--bad);color:#fff}
+  .pill{display:inline-block;background:#eef2ff;color:#3730a3;padding:4px 8px;border-radius:999px;font-size:12px}
+  .muted{color:var(--muted);font-size:12px}
+  table{width:100%;border-collapse:separate;border-spacing:0;border-radius:12px;overflow:hidden}
+  thead th{position:sticky;top:0;background:#111827;color:#fff;font-size:12px;padding:10px;border-bottom:2px solid #374151;z-index:1}
+  tbody td{font-size:13px;padding:8px 10px;border-bottom:1px solid #e5e7eb;background:#fff}
+  tbody tr:nth-child(even) td{background:#fafafa}
+  .right{text-align:right}
+  .center{text-align:center}
+  .tag{display:inline-block;font-size:11px;padding:3px 6px;border-radius:6px;background:#f3f4f6}
+  .footer{margin-top:8px;font-size:12px;color:#6b7280}
+  .hint{font-size:12px;color:#374151;background:#fffbeb;border:1px solid #fde68a;padding:10px;border-radius:12px}
+  .bar{height:8px;border-radius:6px;background:#e5e7eb;overflow:hidden}
+  .bar>span{display:block;height:100%;background:linear-gradient(90deg,var(--bb-amarelo),#34d399)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Registro de Participação — Desafios (até 30)</h1>
+  <p>Cole dados (até 100×100), detectamos Prefixo, Dependência e até 5 produtos (Orçado / Realizado / %). Salve por desafio e exporte CSV/XLSX.</p>
+</header>
+
+<div class="wrap">
+  <div class="grid">
+    <!-- CONTROLES / METADADOS -->
+    <section class="card">
+      <h2>Metadados do Desafio</h2>
+
+      <div class="row">
+        <div>
+          <label for="slot">Slot (1–30)</label>
+          <select id="slot"></select>
+        </div>
+        <div>
+          <label for="date">Data do Desafio</label>
+          <input id="date" type="date" />
+        </div>
+      </div>
+
+      <label for="name">Nome do Desafio</label>
+      <input id="name" type="text" placeholder="Ex.: Super Barreiras — Mobilização Seguridade" />
+
+      <div class="btns">
+        <button class="btn secondary" id="loadSlot">Carregar slot</button>
+        <button class="btn ok" id="saveSlot">Salvar slot (local)</button>
+        <button class="btn warn" id="clearSlot">Limpar slot atual</button>
+        <button class="btn bad" id="wipeAll">Apagar TODOS os slots</button>
+      </div>
+
+      <div class="footer">
+        <span class="pill" id="slotInfo">Nenhum slot carregado</span>
+        <div class="hint" style="margin-top:10px">
+          Dica: você pode manter 30 desafios diferentes. Cada slot guarda: nome, data, produtos detectados e os registros colados.
+        </div>
+      </div>
+    </section>
+
+    <!-- ENTRADA / COLAGEM -->
+    <section class="card">
+      <h2>Entrada de Dados (colar 100×100)</h2>
+      <label for="paste">Cole aqui (Ctrl+V) sua tabela do Excel/Sheets (suportado: texto tabulado ou HTML de tabela). <span class="muted">Até 100 linhas × 100 colunas.</span></label>
+      <textarea id="paste" placeholder="Cole aqui..."></textarea>
+      <div class="btns">
+        <button class="btn primary" id="parse">Ler & Detectar colunas</button>
+        <button class="btn secondary" id="sample">Exemplo rápido</button>
+      </div>
+      <div class="footer">
+        <div class="bar" style="margin-top:8px"><span id="bar" style="width:0%"></span></div>
+        <div class="muted" id="status" style="margin-top:6px">Aguardando colagem…</div>
+      </div>
+    </section>
+  </div>
+
+  <!-- PREVIEW / EXPORT -->
+  <section class="card" id="previewCard" style="display:none">
+    <h2>Prévia dos Dados Detectados <span class="tag" id="prodTag">0 produtos</span></h2>
+    <div class="muted" id="detectedHeads" style="margin:6px 0 10px"></div>
+    <div style="max-height:380px;overflow:auto;border:1px solid #e5e7eb;border-radius:12px">
+      <table id="table">
+        <thead id="thead"></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+
+    <div class="btns" style="margin-top:12px">
+      <button class="btn ok" id="exportCSV">Exportar CSV</button>
+      <button class="btn ok" id="exportXLSX">Exportar XLSX</button>
+      <button class="btn secondary" id="backupJSON">Baixar backup (.json) do slot</button>
+    </div>
+  </section>
+</div>
+
+<script>
+/* ---------- UTIL ---------- */
+const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+const byId = id => document.getElementById(id);
+const SLOT_KEY = 'desafios_slots_v1'; // localStorage key
+
+function initSlots(){
+  const sel = byId('slot');
+  sel.innerHTML = '';
+  for(let i=1;i<=30;i++){
+    const opt = document.createElement('option');
+    opt.value = String(i);
+    opt.textContent = `Slot ${i}`;
+    sel.appendChild(opt);
+  }
+  // preencher label de slots usados
+  refreshSlotInfo();
+}
+
+function loadAllSlots(){
+  try{
+    const raw = localStorage.getItem(SLOT_KEY);
+    return raw ? JSON.parse(raw) : {};
+  }catch(e){ return {}; }
+}
+
+function saveAllSlots(data){
+  localStorage.setItem(SLOT_KEY, JSON.stringify(data));
+  refreshSlotInfo();
+}
+
+function refreshSlotInfo(){
+  const data = loadAllSlots();
+  const used = Object.keys(data).length;
+  byId('slotInfo').textContent = `${used} de 30 slots usados`;
+}
+
+/* ---------- PARSE DE ENTRADA ---------- */
+// Aceita: texto tabulado (TSV/CSV) ou HTML com tabela
+function parsePasted(raw){
+  if(!raw) return {rows:[]};
+  // se vier HTML com <table>...
+  if(raw.trim().startsWith('<') && raw.includes('<table')){
+    try{
+      const doc = new DOMParser().parseFromString(raw, 'text/html');
+      const table = doc.querySelector('table');
+      if(table){
+        const rows = [];
+        table.querySelectorAll('tr').forEach(tr=>{
+          const cells = [...tr.querySelectorAll('th,td')].map(td=>cleanCell(td.textContent));
+          rows.push(cells);
+        });
+        return {rows};
+      }
+    }catch(e){/* continua p/ texto puro */}
+  }
+  // Texto puro: dividir por linhas e tabs/; tentar até 100x100
+  const lines = raw.replace(/\r/g,'').split('\n').slice(0,100).filter(l=>l.trim().length>0);
+  const rows = lines.map(line=>{
+    // primeiro tenta por \t; se pouca divisão, tenta ';' ou ','
+    let parts = line.split('\t');
+    if(parts.length<2) parts = line.split(';');
+    if(parts.length<2) parts = splitCSV(line);
+    return parts.slice(0,100).map(cleanCell);
+  });
+  return {rows};
+}
+
+function splitCSV(line){
+  // CSV simples com aspas
+  const out=[]; let cur=''; let q=false;
+  for(let i=0;i<line.length;i++){
+    const c=line[i];
+    if(c==='\"'){
+      if(q && line[i+1]==='\"'){cur+='\"'; i++;}
+      else q=!q;
+    }else if(c===',' && !q){ out.push(cur); cur=''; }
+    else cur+=c;
+  }
+  out.push(cur);
+  return out;
+}
+
+function cleanCell(s){
+  return (s??'').toString().trim()
+}
+
+/* ---------- DETECÇÃO DE COLUNAS ---------- */
+// Procurar nomes variáveis: Prefixo / Dependência
+// Produtos: colunas contendo "Orçado <produto>", "Realizado <produto>" e "% <produto>" (ordem livre, nomes variáveis)
+// Aceita variações como "Orcado", "Realiz.", "%", "Percentual", etc.
+function detectSchema(head){
+  const norm = head.map(h => normalizeHeader(h));
+  // localizar prefixo/dependência
+  let idxPrefixo = norm.findIndex(h=>/\bprefixo\b/.test(h));
+  let idxDep = norm.findIndex(h=>/\b(dep|dependencia|agencia|agência)\b/.test(h));
+
+  // mapear produtos a partir de cabeçalhos
+  // Estratégia: varrer e procurar tokens "orcado|realizado|percent" + nome do produto (resto da string)
+  const products = {}; // {nome: {orc,real,perc}}
+  norm.forEach((h,i)=>{
+    const m = /(orcad|orçado|orcado|meta|budget)\s*(.+)?$/.exec(h);
+    if(m){
+      const prod = (m[2]||'produto').trim() || inferProductFromNeighbor(norm, i);
+      if(!products[prod]) products[prod]={};
+      products[prod].orc = i; return;
+    }
+    const r = /(realiz|realizado|feito|rs)\s*(.+)?$/.exec(h);
+    if(r){
+      const prod = (r[2]||'produto').trim() || inferProductFromNeighbor(norm, i);
+      if(!products[prod]) products[prod]={};
+      products[prod].real = i; return;
+    }
+    const p = /(^|[^a-z])(perc(ent|)|%\b|ating|performance|taxa)/.exec(h);
+    if(p){
+      // tentar extrair nome depois de % ou no final
+      const prod = extractProductName(h) || inferProductFromNeighbor(norm, i) || 'produto';
+      if(!products[prod]) products[prod]={};
+      products[prod].perc = i; return;
+    }
+  });
+
+  // se nenhum produto detectado, tentar padrão triplo sequencial
+  let prods = Object.keys(products);
+  if(prods.length===0){
+    // heurística: procurar grupos de três números após prefixo/dependência
+    // mas manter simples — não forçamos se não houver
+  }
+
+  // limitar a 5 produtos
+  prods = prods.slice(0,5);
+
+  return { idxPrefixo, idxDep, prods, products };
+}
+
+function normalizeHeader(h){
+  return (h||'').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/\s+/g,' ').trim();
+}
+
+function extractProductName(h){
+  // tenta pegar depois de % ou palavras-chave
+  const s = h.toLowerCase();
+  let t = s.split('%').pop();
+  t = t.replace(/^(de|do|da|:|-)\s*/,'');
+  t = t.replace(/\b(orcado|orçado|realizado|orc|real|percentual|atingimento|meta|rs)\b/g,'');
+  t = t.replace(/\s+/g,' ').trim();
+  return t || null;
+}
+
+function inferProductFromNeighbor(norm, i){
+  // olha vizinhos por tokens de "orcado/realizado/%" e reaproveita o nome
+  const left = norm[i-1] || '';
+  const right = norm[i+1] || '';
+  const cand = [left,right].map(s=>extractProductName(s)).find(Boolean);
+  return cand || null;
+}
+
+/* ---------- RENDER TABELA ---------- */
+function buildPreview(rows, schema){
+  const thead = byId('thead'); const tbody = byId('tbody');
+  thead.innerHTML=''; tbody.innerHTML='';
+  if(rows.length===0){ return; }
+
+  const headerRow = document.createElement('tr');
+  const hPrefix = document.createElement('th'); hPrefix.textContent='Prefixo'; headerRow.appendChild(hPrefix);
+  const hDep = document.createElement('th'); hDep.textContent='Dependência'; headerRow.appendChild(hDep);
+
+  const productsOrdered = schema.prods;
+  productsOrdered.forEach(prod=>{
+    const name = titleCase(prod || 'Produto');
+    const th1=document.createElement('th'); th1.textContent=`Orçado — ${name}`; headerRow.appendChild(th1);
+    const th2=document.createElement('th'); th2.textContent=`Realizado — ${name}`; headerRow.appendChild(th2);
+    const th3=document.createElement('th'); th3.textContent=`% — ${name}`; headerRow.appendChild(th3);
+  });
+  thead.appendChild(headerRow);
+
+  const limit = Math.min(rows.length-1, 100); // até 100 linhas de dados
+  for(let r=1; r<=limit; r++){
+    const tr = document.createElement('tr');
+    const row = rows[r] || [];
+
+    const tdP=document.createElement('td');
+    tdP.textContent = getCell(row, schema.idxPrefixo);
+    tr.appendChild(tdP);
+
+    const tdD=document.createElement('td');
+    tdD.textContent = getCell(row, schema.idxDep);
+    tr.appendChild(tdD);
+
+    productsOrdered.forEach(prod=>{
+      const map = schema.products[prod]||{};
+      const td1=document.createElement('td'); td1.className='right'; td1.textContent=formatNumber(getCell(row,map.orc)); tr.appendChild(td1);
+      const td2=document.createElement('td'); td2.className='right'; td2.textContent=formatNumber(getCell(row,map.real)); tr.appendChild(td2);
+      const td3=document.createElement('td'); td3.className='right'; td3.textContent=formatPercent(getCell(row,map.perc)); tr.appendChild(td3);
+    });
+
+    tbody.appendChild(tr);
+  }
+
+  // meta-info
+  byId('prodTag').textContent = `${productsOrdered.length} produto(s)`;
+  const heads = rows[0]?.map((h,i)=>`[${i}] ${h}`).join(' · ') || '';
+  byId('detectedHeads').textContent = heads;
+  byId('previewCard').style.display='block';
+}
+
+function getCell(row, idx){
+  if(idx==null || idx<0) return '';
+  return row[idx] ?? '';
+}
+
+function formatNumber(v){
+  // aceita 1.234,56 ou 1234.56; devolve como número PT-BR
+  const s = (v??'').toString().trim();
+  if(!s) return '';
+  // remove espaços, normaliza
+  const num = parseLocaleNumber(s);
+  if(isNaN(num)) return s;
+  return num.toLocaleString('pt-BR', {minimumFractionDigits:0, maximumFractionDigits:2});
+}
+
+function parseLocaleNumber(s){
+  // heurística: se tem vírgula e ponto, decide separador decimal pelo último símbolo
+  let t = s.replace(/[^\d,.\-]/g,'').trim();
+  if(!t) return NaN;
+  const lastComma = t.lastIndexOf(',');
+  const lastDot = t.lastIndexOf('.');
+  let decSep = lastComma>lastDot ? ',' : '.';
+  // se houver ambos, remover o outro como milhar
+  if(decSep===','){ t = t.replace(/\./g,''); t = t.replace(',','.'); }
+  else { t = t.replace(/,/g,''); }
+  return Number(t);
+}
+
+function formatPercent(v){
+  const s = (v??'').toString().trim().replace('%','');
+  if(!s) return '';
+  const num = parseLocaleNumber(s);
+  if(isNaN(num)) return s;
+  return num.toLocaleString('pt-BR', {maximumFractionDigits:2}) + ' %';
+}
+
+function titleCase(s){
+  return (s||'').split(' ').map(p=>p? p[0].toUpperCase()+p.slice(1):'').join(' ');
+}
+
+/* ---------- EXPORT ---------- */
+function buildExportMatrix(rows, schema){
+  const out = [];
+  const header = ['Prefixo','Dependência'];
+  const productsOrdered = schema.prods;
+  productsOrdered.forEach(prod=>{
+    const n = titleCase(prod||'Produto');
+    header.push(`Orçado — ${n}`, `Realizado — ${n}`, `% — ${n}`);
+  });
+  out.push(header);
+
+  const limit = Math.min(rows.length-1, 100);
+  for(let r=1; r<=limit; r++){
+    const row = rows[r] || [];
+    const line = [
+      getCell(row, schema.idxPrefixo),
+      getCell(row, schema.idxDep)
+    ];
+    productsOrdered.forEach(prod=>{
+      const map = schema.products[prod]||{};
+      line.push(
+        getCell(row, map.orc),
+        getCell(row, map.real),
+        getCell(row, map.perc)
+      );
+    });
+    out.push(line);
+  }
+  return out;
+}
+
+function downloadCSV(matrix, filename){
+  const csv = matrix.map(line=> line.map(s=>csvCell(s)).join(',')).join('\r\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  saveAs(blob, filename.endsWith('.csv')?filename:filename+'.csv');
+}
+function csvCell(s){
+  const t = (s??'').toString();
+  if(/[",\r\n]/.test(t)) return `"${t.replace(/"/g,'""')}"`;
+  return t;
+}
+
+function downloadXLSX(matrix, filename){
+  const ws = XLSX.utils.aoa_to_sheet(matrix);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Dados');
+  const wbout = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+  saveAs(new Blob([wbout], {type:'application/octet-stream'}), filename.endsWith('.xlsx')?filename:filename+'.xlsx');
+}
+
+/* ---------- ESTADO / SLOT ---------- */
+const state = {
+  rows: [],
+  schema: null
+};
+
+function currentMeta(){
+  const slot = clamp(parseInt(byId('slot').value||'1',10),1,30);
+  const name = byId('name').value.trim();
+  const date = byId('date').value;
+  return {slot, name, date};
+}
+
+function saveSlot(){
+  const {slot, name, date} = currentMeta();
+  if(!name){ alert('Informe o nome do desafio.'); return; }
+  if(!date){ alert('Informe a data do desafio.'); return; }
+  if(!state.rows.length || !state.schema){ alert('Cole e leia os dados antes de salvar o slot.'); return; }
+  const data = loadAllSlots();
+  data[slot] = {
+    meta:{name,date,ts:Date.now()},
+    rows: state.rows,
+    schema: state.schema
+  };
+  saveAllSlots(data);
+  alert(`Slot ${slot} salvo com sucesso.`);
+}
+
+function loadSlot(){
+  const slot = clamp(parseInt(byId('slot').value||'1',10),1,30);
+  const data = loadAllSlots();
+  if(!data[slot]){ alert('Slot vazio.'); return; }
+  const rec = data[slot];
+  byId('name').value = rec.meta?.name || '';
+  byId('date').value = rec.meta?.date || '';
+  state.rows = rec.rows||[];
+  state.schema = rec.schema||null;
+
+  if(state.rows.length && state.schema){
+    buildPreview(state.rows, state.schema);
+    byId('status').textContent = `Carregado do slot ${slot}: ${rec.meta?.name||''}`;
+    byId('bar').style.width = '100%';
+  }else{
+    byId('previewCard').style.display='none';
+  }
+}
+
+function clearSlot(){
+  const slot = clamp(parseInt(byId('slot').value||'1',10),1,30);
+  const data = loadAllSlots();
+  if(data[slot]){
+    delete data[slot];
+    saveAllSlots(data);
+    alert(`Slot ${slot} limpo.`);
+  }else{
+    alert('Slot já está vazio.');
+  }
+}
+
+function wipeAll(){
+  if(confirm('Apagar TODOS os 30 slots salvos? Esta ação não pode ser desfeita.')){
+    localStorage.removeItem(SLOT_KEY);
+    refreshSlotInfo();
+    alert('Todos os slots foram apagados.');
+  }
+}
+
+/* ---------- UI HANDLERS ---------- */
+function updateStatus(msg, prog){
+  byId('status').textContent = msg;
+  if(typeof prog==='number'){
+    byId('bar').style.width = clamp(prog,0,100)+'%';
+  }
+}
+
+byId('parse').addEventListener('click', ()=>{
+  const raw = byId('paste').value;
+  if(!raw.trim()){ alert('Cole os dados no campo de texto antes de ler.'); return; }
+
+  updateStatus('Lendo dados…', 10);
+  const parsed = parsePasted(raw);
+  if(!parsed.rows.length){ updateStatus('Nada lido. Verifique a colagem.', 0); return; }
+
+  // limitar 100x100
+  parsed.rows = parsed.rows.slice(0, 100).map(r=>r.slice(0,100));
+
+  const head = parsed.rows[0] || [];
+  const schema = detectSchema(head);
+  if(schema.idxPrefixo===-1 || schema.idxDep===-1){
+    updateStatus('Não encontrei cabeçalhos de "Prefixo" e/ou "Dependência". Ajuste os títulos e tente novamente.', 0);
+    alert('Cabeçalho esperado: algo como "Prefixo" e "Dependência/Agência".');
+    return;
+  }
+  if(schema.prods.length===0){
+    updateStatus('Nenhuma combinação Orçado/Realizado/% detectada. Renomeie as colunas e tente novamente.', 0);
+    alert('Detecte-se produtos por colunas contendo: Orçado [nome], Realizado [nome], % [nome].');
+    return;
+  }
+
+  state.rows = parsed.rows;
+  state.schema = schema;
+
+  buildPreview(state.rows, state.schema);
+  updateStatus('Dados lidos com sucesso!', 100);
+});
+
+byId('exportCSV').addEventListener('click', ()=>{
+  const {name,date} = currentMeta();
+  if(!state.rows.length || !state.schema){ alert('Nada para exportar.'); return; }
+  const matrix = buildExportMatrix(state.rows, state.schema);
+  const filename = safeName(`${name || 'desafio'}_${date || new Date().toISOString().slice(0,10)}.csv`);
+  downloadCSV(matrix, filename);
+});
+
+byId('exportXLSX').addEventListener('click', ()=>{
+  const {name,date} = currentMeta();
+  if(!state.rows.length || !state.schema){ alert('Nada para exportar.'); return; }
+  const matrix = buildExportMatrix(state.rows, state.schema);
+  const filename = safeName(`${name || 'desafio'}_${date || new Date().toISOString().slice(0,10)}.xlsx`);
+  downloadXLSX(matrix, filename);
+});
+
+byId('backupJSON').addEventListener('click', ()=>{
+  const slot = clamp(parseInt(byId('slot').value||'1',10),1,30);
+  const data = loadAllSlots();
+  if(!data[slot]){ alert('Slot vazio.'); return; }
+  const blob = new Blob([JSON.stringify(data[slot], null, 2)], {type:'application/json;charset=utf-8'});
+  saveAs(blob, safeName(`backup_slot_${slot}.json`));
+});
+
+byId('saveSlot').addEventListener('click', saveSlot);
+byId('loadSlot').addEventListener('click', loadSlot);
+byId('clearSlot').addEventListener('click', clearSlot);
+byId('wipeAll').addEventListener('click', wipeAll);
+
+byId('sample').addEventListener('click', ()=>{
+  const demo = [
+    ['Prefixo','Dependência','Orçado Vida','Realizado Vida','% Vida','Orçado Prestamista','Realizado Prestamista','% Prestamista','Orçado Patrimônio','Realizado Patrimônio','% Patrimônio'],
+    ['01','Agência Alfa','10.000','8.500','85%','5.000','5.500','110%','2.000','1.000','50%'],
+    ['01','Agência Beta','7.500','7.500','100%','3.000','2.100','70%','1.500','2.250','150%'],
+    ['02','Agência Gama','12.000','9.000','75%','4.000','3.200','80%','1.000','900','90%']
+  ];
+  const tsv = demo.map(r=>r.join('\t')).join('\n');
+  byId('paste').value = tsv;
+  byId('status').textContent = 'Exemplo carregado — clique em "Ler & Detectar colunas".';
+});
+
+function safeName(s){
+  return (s||'').replace(/[^\w\s\-\._]/g,'_').replace(/\s+/g,'_');
+}
+
+/* inicialização */
+initSlots();
+</script>
+</body>
+</html>
