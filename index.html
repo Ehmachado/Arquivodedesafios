@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Registro de Participação por Desafio — 30 Slots</title>
 
-<!-- SheetJS p/ XLSX, FileSaver p/ downloads -->
+<!-- SheetJS p/ XLSX, FileSaver p/ downloads (funciona offline) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
 
@@ -49,7 +49,6 @@
   tbody td{font-size:13px;padding:8px 10px;border-bottom:1px solid #e5e7eb;background:#fff}
   tbody tr:nth-child(even) td{background:#fafafa}
   .right{text-align:right}
-  .center{text-align:center}
   .tag{display:inline-block;font-size:11px;padding:3px 6px;border-radius:6px;background:#f3f4f6}
   .footer{margin-top:8px;font-size:12px;color:#6b7280}
   .hint{font-size:12px;color:#374151;background:#fffbeb;border:1px solid #fde68a;padding:10px;border-radius:12px}
@@ -60,7 +59,7 @@
 <body>
 <header>
   <h1>Registro de Participação — Desafios (até 30)</h1>
-  <p>Cole dados (até 100×100), detectamos Prefixo, Dependência e até 5 produtos (Orçado / Realizado / %). Salve por desafio e exporte CSV/XLSX.</p>
+  <p>Cole dados (até 100×100). Detecta Prefixo, Agência e até 5 produtos (Orçado / Realizado / % Atingimento). Salve por desafio e exporte CSV/XLSX.</p>
 </header>
 
 <div class="wrap">
@@ -134,10 +133,10 @@
 </div>
 
 <script>
-/* ---------- UTIL ---------- */
+/* ===================== UTIL & SLOTS ===================== */
 const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 const byId = id => document.getElementById(id);
-const SLOT_KEY = 'desafios_slots_v1'; // localStorage key
+const SLOT_KEY = 'desafios_slots_v1';
 
 function initSlots(){
   const sel = byId('slot');
@@ -148,33 +147,16 @@ function initSlots(){
     opt.textContent = `Slot ${i}`;
     sel.appendChild(opt);
   }
-  // preencher label de slots usados
   refreshSlotInfo();
 }
+function loadAllSlots(){ try{ const raw = localStorage.getItem(SLOT_KEY); return raw ? JSON.parse(raw) : {}; }catch(e){ return {}; } }
+function saveAllSlots(data){ localStorage.setItem(SLOT_KEY, JSON.stringify(data)); refreshSlotInfo(); }
+function refreshSlotInfo(){ const data = loadAllSlots(); const used = Object.keys(data).length; byId('slotInfo').textContent = `${used} de 30 slots usados`; }
 
-function loadAllSlots(){
-  try{
-    const raw = localStorage.getItem(SLOT_KEY);
-    return raw ? JSON.parse(raw) : {};
-  }catch(e){ return {}; }
-}
-
-function saveAllSlots(data){
-  localStorage.setItem(SLOT_KEY, JSON.stringify(data));
-  refreshSlotInfo();
-}
-
-function refreshSlotInfo(){
-  const data = loadAllSlots();
-  const used = Object.keys(data).length;
-  byId('slotInfo').textContent = `${used} de 30 slots usados`;
-}
-
-/* ---------- PARSE DE ENTRADA ---------- */
-// Aceita: texto tabulado (TSV/CSV) ou HTML com tabela
+/* ===================== PARSE DE ENTRADA ===================== */
 function parsePasted(raw){
   if(!raw) return {rows:[]};
-  // se vier HTML com <table>...
+  // HTML com <table>
   if(raw.trim().startsWith('<') && raw.includes('<table')){
     try{
       const doc = new DOMParser().parseFromString(raw, 'text/html');
@@ -187,12 +169,11 @@ function parsePasted(raw){
         });
         return {rows};
       }
-    }catch(e){/* continua p/ texto puro */}
+    }catch(e){}
   }
-  // Texto puro: dividir por linhas e tabs/; tentar até 100x100
+  // Texto puro (tabs ; csv)
   const lines = raw.replace(/\r/g,'').split('\n').slice(0,100).filter(l=>l.trim().length>0);
   const rows = lines.map(line=>{
-    // primeiro tenta por \t; se pouca divisão, tenta ';' ou ','
     let parts = line.split('\t');
     if(parts.length<2) parts = line.split(';');
     if(parts.length<2) parts = splitCSV(line);
@@ -200,229 +181,213 @@ function parsePasted(raw){
   });
   return {rows};
 }
-
 function splitCSV(line){
-  // CSV simples com aspas
   const out=[]; let cur=''; let q=false;
   for(let i=0;i<line.length;i++){
     const c=line[i];
-    if(c==='\"'){
-      if(q && line[i+1]==='\"'){cur+='\"'; i++;}
-      else q=!q;
-    }else if(c===',' && !q){ out.push(cur); cur=''; }
+    if(c==='\"'){ if(q && line[i+1]==='\"'){cur+='\"'; i++;} else q=!q; }
+    else if(c===',' && !q){ out.push(cur); cur=''; }
     else cur+=c;
   }
   out.push(cur);
   return out;
 }
+function cleanCell(s){ return (s??'').toString().trim(); }
 
-function cleanCell(s){
-  return (s??'').toString().trim()
+/* ===================== MOJIBAKE FIX & NORMALIZAÇÃO ===================== */
+function fixMojibake(s){
+  try{
+    const fixed = decodeURIComponent(escape(s));
+    if(fixed && scoreMojibakeFix(s, fixed) > 0) return fixed;
+  }catch(e){}
+  return s
+    .replace(/AgÃªncia/gi,'Agência')
+    .replace(/OrÃ§ado/gi,'Orçado')
+    .replace(/DependÃªncia/gi,'Dependência')
+    .replace(/ProporÃ§Ã£o/gi,'Proporção')
+    .replace(/% Atingimento/gi,'% Atingimento');
+}
+function scoreMojibakeFix(orig, fixed){
+  const accents = (t)=> (t.match(/[áàãâéêíóôõúç]/gi)||[]).length;
+  return accents(fixed) - accents(orig);
+}
+function normalizeHeader(h){
+  const base = fixMojibake(h||'')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  return base.replace(/\s+/g,' ').trim();
 }
 
-/* ---------- DETECÇÃO DE COLUNAS ---------- */
-// Procurar nomes variáveis: Prefixo / Dependência
-// Produtos: colunas contendo "Orçado <produto>", "Realizado <produto>" e "% <produto>" (ordem livre, nomes variáveis)
-// Aceita variações como "Orcado", "Realiz.", "%", "Percentual", etc.
+/* ===================== DETECÇÃO DE ESQUEMA (Formato solicitado) ===================== */
+/* Alvo do cabeçalho:
+   Prefixo | Agência | Orçado <produto> | Realizado <produto> | % Atingimento <produto>
+   Suporta até 5 produtos distintos (com nomes variáveis nos cabeçalhos) */
 function detectSchema(head){
-  const norm = head.map(h => normalizeHeader(h));
-  // localizar prefixo/dependência
-  let idxPrefixo = norm.findIndex(h=>/\bprefixo\b/.test(h));
-  let idxDep = norm.findIndex(h=>/\b(dep|dependencia|agencia|agência)\b/.test(h));
+  // Corrigir visível para a prévia
+  for(let i=0;i<head.length;i++) head[i] = fixMojibake(head[i]);
 
-  // mapear produtos a partir de cabeçalhos
-  // Estratégia: varrer e procurar tokens "orcado|realizado|percent" + nome do produto (resto da string)
-  const products = {}; // {nome: {orc,real,perc}}
+  const norm = head.map(h => normalizeHeader(h));
+
+  // Prefixo
+  let idxPrefixo = norm.findIndex(h=>/\bprefixo\b/.test(h));
+
+  // Agência / Dependência
+  let idxDep = norm.findIndex(h=>/\b(agencia|dependencia|agencia\/dependencia|agencia-dependencia)\b/.test(h));
+  if(idxDep===-1) idxDep = norm.findIndex(h=>/\b(dep|ag)\b/.test(h));
+
+  // Produtos: orçado/realizado/% atingimento + nome do produto
+  const products = {};
   norm.forEach((h,i)=>{
-    const m = /(orcad|orçado|orcado|meta|budget)\s*(.+)?$/.exec(h);
-    if(m){
-      const prod = (m[2]||'produto').trim() || inferProductFromNeighbor(norm, i);
-      if(!products[prod]) products[prod]={};
+    // % Atingimento <produto>
+    const mPerc = /(^|[^a-z])(perc(ent|)|%)(\s+ating(imento)?)?\s*(.+)?$/i.exec(h);
+    if(mPerc){
+      const prod = sanitizeProductName(extractProductName(head[i]) || inferProductFromNeighbor(norm, i) || 'produto');
+      products[prod] = products[prod]||{};
+      products[prod].perc = i; return;
+    }
+    // Orçado <produto>
+    const mOrc = /\borc(ad|ado|ado\/meta|ado\smeta|a?o)\b\s*(.+)?$/i.exec(h);
+    if(mOrc){
+      const prod = sanitizeProductName(extractProductName(head[i]) || inferProductFromNeighbor(norm, i) || 'produto');
+      products[prod] = products[prod]||{};
       products[prod].orc = i; return;
     }
-    const r = /(realiz|realizado|feito|rs)\s*(.+)?$/.exec(h);
-    if(r){
-      const prod = (r[2]||'produto').trim() || inferProductFromNeighbor(norm, i);
-      if(!products[prod]) products[prod]={};
+    // Realizado <produto>
+    const mReal = /\brealiz(ad|ado|ado\/rs|ado\srs)?\b\s*(.+)?$/i.exec(h);
+    if(mReal){
+      const prod = sanitizeProductName(extractProductName(head[i]) || inferProductFromNeighbor(norm, i) || 'produto');
+      products[prod] = products[prod]||{};
       products[prod].real = i; return;
-    }
-    const p = /(^|[^a-z])(perc(ent|)|%\b|ating|performance|taxa)/.exec(h);
-    if(p){
-      // tentar extrair nome depois de % ou no final
-      const prod = extractProductName(h) || inferProductFromNeighbor(norm, i) || 'produto';
-      if(!products[prod]) products[prod]={};
-      products[prod].perc = i; return;
     }
   });
 
-  // se nenhum produto detectado, tentar padrão triplo sequencial
-  let prods = Object.keys(products);
-  if(prods.length===0){
-    // heurística: procurar grupos de três números após prefixo/dependência
-    // mas manter simples — não forçamos se não houver
-  }
-
-  // limitar a 5 produtos
-  prods = prods.slice(0,5);
-
+  const prods = Object.keys(products).slice(0,5);
   return { idxPrefixo, idxDep, prods, products };
 }
-
-function normalizeHeader(h){
-  return (h||'').toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+function sanitizeProductName(name){
+  return (name||'')
+    .replace(/\b(orcado|realizado|percentual|atingimento|meta|rs)\b/gi,'')
+    .replace(/[-–—:]+/g,' ')
     .replace(/\s+/g,' ').trim();
 }
-
 function extractProductName(h){
-  // tenta pegar depois de % ou palavras-chave
-  const s = h.toLowerCase();
-  let t = s.split('%').pop();
-  t = t.replace(/^(de|do|da|:|-)\s*/,'');
-  t = t.replace(/\b(orcado|orçado|realizado|orc|real|percentual|atingimento|meta|rs)\b/g,'');
-  t = t.replace(/\s+/g,' ').trim();
-  return t || null;
+  const s = fixMojibake((h||'')+'').toLowerCase();
+  let t = s;
+  if(s.includes('%')) t = s.split('%').pop();
+  t = t.replace(/\b(de|do|da|:|-)\b/g,' ');
+  t = t.replace(/\b(orcado|realizado|percentual|atingimento|meta|rs)\b/g,' ');
+  return t.replace(/\s+/g,' ').trim() || null;
 }
-
 function inferProductFromNeighbor(norm, i){
-  // olha vizinhos por tokens de "orcado/realizado/%" e reaproveita o nome
   const left = norm[i-1] || '';
   const right = norm[i+1] || '';
-  const cand = [left,right].map(s=>extractProductName(s)).find(Boolean);
+  const cand = [left,right].map(s=> {
+    const t = s.replace(/\b(orcado|realizado|percentual|atingimento|meta|rs)\b/g,' ').trim();
+    return t.split('%').pop().trim();
+  }).find(Boolean);
   return cand || null;
 }
 
-/* ---------- RENDER TABELA ---------- */
+/* ===================== TABELA / PRÉVIA ===================== */
 function buildPreview(rows, schema){
   const thead = byId('thead'); const tbody = byId('tbody');
   thead.innerHTML=''; tbody.innerHTML='';
   if(rows.length===0){ return; }
 
   const headerRow = document.createElement('tr');
-  const hPrefix = document.createElement('th'); hPrefix.textContent='Prefixo'; headerRow.appendChild(hPrefix);
-  const hDep = document.createElement('th'); hDep.textContent='Dependência'; headerRow.appendChild(hDep);
+  headerRow.appendChild(th('Prefixo'));
+  headerRow.appendChild(th('Agência'));
 
   const productsOrdered = schema.prods;
   productsOrdered.forEach(prod=>{
     const name = titleCase(prod || 'Produto');
-    const th1=document.createElement('th'); th1.textContent=`Orçado — ${name}`; headerRow.appendChild(th1);
-    const th2=document.createElement('th'); th2.textContent=`Realizado — ${name}`; headerRow.appendChild(th2);
-    const th3=document.createElement('th'); th3.textContent=`% — ${name}`; headerRow.appendChild(th3);
+    headerRow.appendChild(th(`Orçado — ${name}`));
+    headerRow.appendChild(th(`Realizado — ${name}`));
+    headerRow.appendChild(th(`% Atingimento — ${name}`));
   });
   thead.appendChild(headerRow);
 
-  const limit = Math.min(rows.length-1, 100); // até 100 linhas de dados
+  const limit = Math.min(rows.length-1, 100);
   for(let r=1; r<=limit; r++){
     const tr = document.createElement('tr');
     const row = rows[r] || [];
 
-    const tdP=document.createElement('td');
-    tdP.textContent = getCell(row, schema.idxPrefixo);
-    tr.appendChild(tdP);
-
-    const tdD=document.createElement('td');
-    tdD.textContent = getCell(row, schema.idxDep);
-    tr.appendChild(tdD);
+    td(tr, getCell(row, schema.idxPrefixo));
+    td(tr, getCell(row, schema.idxDep));
 
     productsOrdered.forEach(prod=>{
       const map = schema.products[prod]||{};
-      const td1=document.createElement('td'); td1.className='right'; td1.textContent=formatNumber(getCell(row,map.orc)); tr.appendChild(td1);
-      const td2=document.createElement('td'); td2.className='right'; td2.textContent=formatNumber(getCell(row,map.real)); tr.appendChild(td2);
-      const td3=document.createElement('td'); td3.className='right'; td3.textContent=formatPercent(getCell(row,map.perc)); tr.appendChild(td3);
+      td(tr, formatNumber(getCell(row,map.orc)), 'right');
+      td(tr, formatNumber(getCell(row,map.real)), 'right');
+      td(tr, formatPercent(getCell(row,map.perc)), 'right');
     });
-
-    tbody.appendChild(tr);
+    byId('tbody').appendChild(tr);
   }
 
-  // meta-info
   byId('prodTag').textContent = `${productsOrdered.length} produto(s)`;
-  const heads = rows[0]?.map((h,i)=>`[${i}] ${h}`).join(' · ') || '';
+  const heads = rows[0]?.map((h,i)=>`[${i}] ${fixMojibake(h)}`).join(' · ') || '';
   byId('detectedHeads').textContent = heads;
   byId('previewCard').style.display='block';
 }
+function th(txt){ const e=document.createElement('th'); e.textContent=txt; return e; }
+function td(tr, txt, cls){ const e=document.createElement('td'); if(cls) e.className=cls; e.textContent = txt; tr.appendChild(e); }
 
-function getCell(row, idx){
-  if(idx==null || idx<0) return '';
-  return row[idx] ?? '';
-}
-
+function getCell(row, idx){ if(idx==null || idx<0) return ''; return row[idx] ?? ''; }
 function formatNumber(v){
-  // aceita 1.234,56 ou 1234.56; devolve como número PT-BR
   const s = (v??'').toString().trim();
   if(!s) return '';
-  // remove espaços, normaliza
   const num = parseLocaleNumber(s);
   if(isNaN(num)) return s;
   return num.toLocaleString('pt-BR', {minimumFractionDigits:0, maximumFractionDigits:2});
 }
-
 function parseLocaleNumber(s){
-  // heurística: se tem vírgula e ponto, decide separador decimal pelo último símbolo
   let t = s.replace(/[^\d,.\-]/g,'').trim();
   if(!t) return NaN;
   const lastComma = t.lastIndexOf(',');
   const lastDot = t.lastIndexOf('.');
   let decSep = lastComma>lastDot ? ',' : '.';
-  // se houver ambos, remover o outro como milhar
   if(decSep===','){ t = t.replace(/\./g,''); t = t.replace(',','.'); }
   else { t = t.replace(/,/g,''); }
   return Number(t);
 }
-
 function formatPercent(v){
-  const s = (v??'').toString().trim().replace('%','');
+  const s = fixMojibake((v??'').toString().trim()).replace('%','');
   if(!s) return '';
   const num = parseLocaleNumber(s);
   if(isNaN(num)) return s;
   return num.toLocaleString('pt-BR', {maximumFractionDigits:2}) + ' %';
 }
+function titleCase(s){ return (s||'').split(' ').map(p=>p? p[0].toUpperCase()+p.slice(1):'').join(' '); }
 
-function titleCase(s){
-  return (s||'').split(' ').map(p=>p? p[0].toUpperCase()+p.slice(1):'').join(' ');
-}
-
-/* ---------- EXPORT ---------- */
+/* ===================== EXPORT / ESTADO ===================== */
 function buildExportMatrix(rows, schema){
   const out = [];
-  const header = ['Prefixo','Dependência'];
+  const header = ['Prefixo','Agência'];
   const productsOrdered = schema.prods;
   productsOrdered.forEach(prod=>{
     const n = titleCase(prod||'Produto');
-    header.push(`Orçado — ${n}`, `Realizado — ${n}`, `% — ${n}`);
+    header.push(`Orçado — ${n}`, `Realizado — ${n}`, `% Atingimento — ${n}`);
   });
   out.push(header);
 
   const limit = Math.min(rows.length-1, 100);
   for(let r=1; r<=limit; r++){
     const row = rows[r] || [];
-    const line = [
-      getCell(row, schema.idxPrefixo),
-      getCell(row, schema.idxDep)
-    ];
+    const line = [ getCell(row, schema.idxPrefixo), getCell(row, schema.idxDep) ];
     productsOrdered.forEach(prod=>{
       const map = schema.products[prod]||{};
-      line.push(
-        getCell(row, map.orc),
-        getCell(row, map.real),
-        getCell(row, map.perc)
-      );
+      line.push( getCell(row, map.orc), getCell(row, map.real), getCell(row, map.perc) );
     });
     out.push(line);
   }
   return out;
 }
-
 function downloadCSV(matrix, filename){
   const csv = matrix.map(line=> line.map(s=>csvCell(s)).join(',')).join('\r\n');
   const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
   saveAs(blob, filename.endsWith('.csv')?filename:filename+'.csv');
 }
-function csvCell(s){
-  const t = (s??'').toString();
-  if(/[",\r\n]/.test(t)) return `"${t.replace(/"/g,'""')}"`;
-  return t;
-}
-
+function csvCell(s){ const t=(s??'').toString(); return /[",\r\n]/.test(t)? `"${t.replace(/"/g,'""')}"` : t; }
 function downloadXLSX(matrix, filename){
   const ws = XLSX.utils.aoa_to_sheet(matrix);
   const wb = XLSX.utils.book_new();
@@ -431,34 +396,18 @@ function downloadXLSX(matrix, filename){
   saveAs(new Blob([wbout], {type:'application/octet-stream'}), filename.endsWith('.xlsx')?filename:filename+'.xlsx');
 }
 
-/* ---------- ESTADO / SLOT ---------- */
-const state = {
-  rows: [],
-  schema: null
-};
-
-function currentMeta(){
-  const slot = clamp(parseInt(byId('slot').value||'1',10),1,30);
-  const name = byId('name').value.trim();
-  const date = byId('date').value;
-  return {slot, name, date};
-}
-
+const state = { rows: [], schema: null };
+function currentMeta(){ const slot = clamp(parseInt(byId('slot').value||'1',10),1,30); const name = byId('name').value.trim(); const date = byId('date').value; return {slot, name, date}; }
 function saveSlot(){
   const {slot, name, date} = currentMeta();
   if(!name){ alert('Informe o nome do desafio.'); return; }
   if(!date){ alert('Informe a data do desafio.'); return; }
   if(!state.rows.length || !state.schema){ alert('Cole e leia os dados antes de salvar o slot.'); return; }
   const data = loadAllSlots();
-  data[slot] = {
-    meta:{name,date,ts:Date.now()},
-    rows: state.rows,
-    schema: state.schema
-  };
+  data[slot] = { meta:{name,date,ts:Date.now()}, rows: state.rows, schema: state.schema };
   saveAllSlots(data);
   alert(`Slot ${slot} salvo com sucesso.`);
 }
-
 function loadSlot(){
   const slot = clamp(parseInt(byId('slot').value||'1',10),1,30);
   const data = loadAllSlots();
@@ -468,7 +417,6 @@ function loadSlot(){
   byId('date').value = rec.meta?.date || '';
   state.rows = rec.rows||[];
   state.schema = rec.schema||null;
-
   if(state.rows.length && state.schema){
     buildPreview(state.rows, state.schema);
     byId('status').textContent = `Carregado do slot ${slot}: ${rec.meta?.name||''}`;
@@ -477,19 +425,12 @@ function loadSlot(){
     byId('previewCard').style.display='none';
   }
 }
-
 function clearSlot(){
   const slot = clamp(parseInt(byId('slot').value||'1',10),1,30);
   const data = loadAllSlots();
-  if(data[slot]){
-    delete data[slot];
-    saveAllSlots(data);
-    alert(`Slot ${slot} limpo.`);
-  }else{
-    alert('Slot já está vazio.');
-  }
+  if(data[slot]){ delete data[slot]; saveAllSlots(data); alert(`Slot ${slot} limpo.`); }
+  else alert('Slot já está vazio.');
 }
-
 function wipeAll(){
   if(confirm('Apagar TODOS os 30 slots salvos? Esta ação não pode ser desfeita.')){
     localStorage.removeItem(SLOT_KEY);
@@ -498,35 +439,28 @@ function wipeAll(){
   }
 }
 
-/* ---------- UI HANDLERS ---------- */
-function updateStatus(msg, prog){
-  byId('status').textContent = msg;
-  if(typeof prog==='number'){
-    byId('bar').style.width = clamp(prog,0,100)+'%';
-  }
-}
+/* ===================== LEITURA AUTOMÁTICA APÓS COLAR ===================== */
+let autoParseTimer = null;
+function updateStatus(msg, prog){ byId('status').textContent = msg; if(typeof prog==='number'){ byId('bar').style.width = clamp(prog,0,100)+'%'; } }
 
-byId('parse').addEventListener('click', ()=>{
+function autoParseNow(){
   const raw = byId('paste').value;
-  if(!raw.trim()){ alert('Cole os dados no campo de texto antes de ler.'); return; }
-
+  if(!raw.trim()){ updateStatus('Aguardando colagem…', 0); return; }
   updateStatus('Lendo dados…', 10);
   const parsed = parsePasted(raw);
   if(!parsed.rows.length){ updateStatus('Nada lido. Verifique a colagem.', 0); return; }
 
-  // limitar 100x100
-  parsed.rows = parsed.rows.slice(0, 100).map(r=>r.slice(0,100));
+  parsed.rows = parsed.rows.slice(0,100).map(r=>r.slice(0,100));
 
   const head = parsed.rows[0] || [];
   const schema = detectSchema(head);
+
   if(schema.idxPrefixo===-1 || schema.idxDep===-1){
-    updateStatus('Não encontrei cabeçalhos de "Prefixo" e/ou "Dependência". Ajuste os títulos e tente novamente.', 0);
-    alert('Cabeçalho esperado: algo como "Prefixo" e "Dependência/Agência".');
+    updateStatus('Não encontrei cabeçalhos de "Prefixo" e/ou "Agência".', 0);
     return;
   }
   if(schema.prods.length===0){
-    updateStatus('Nenhuma combinação Orçado/Realizado/% detectada. Renomeie as colunas e tente novamente.', 0);
-    alert('Detecte-se produtos por colunas contendo: Orçado [nome], Realizado [nome], % [nome].');
+    updateStatus('Nenhum produto detectado (Orçado/Realizado/% Atingimento).', 0);
     return;
   }
 
@@ -535,8 +469,10 @@ byId('parse').addEventListener('click', ()=>{
 
   buildPreview(state.rows, state.schema);
   updateStatus('Dados lidos com sucesso!', 100);
-});
+}
 
+/* ======= Botões / Eventos ======= */
+byId('parse').addEventListener('click', autoParseNow);
 byId('exportCSV').addEventListener('click', ()=>{
   const {name,date} = currentMeta();
   if(!state.rows.length || !state.schema){ alert('Nada para exportar.'); return; }
@@ -544,7 +480,6 @@ byId('exportCSV').addEventListener('click', ()=>{
   const filename = safeName(`${name || 'desafio'}_${date || new Date().toISOString().slice(0,10)}.csv`);
   downloadCSV(matrix, filename);
 });
-
 byId('exportXLSX').addEventListener('click', ()=>{
   const {name,date} = currentMeta();
   if(!state.rows.length || !state.schema){ alert('Nada para exportar.'); return; }
@@ -552,7 +487,6 @@ byId('exportXLSX').addEventListener('click', ()=>{
   const filename = safeName(`${name || 'desafio'}_${date || new Date().toISOString().slice(0,10)}.xlsx`);
   downloadXLSX(matrix, filename);
 });
-
 byId('backupJSON').addEventListener('click', ()=>{
   const slot = clamp(parseInt(byId('slot').value||'1',10),1,30);
   const data = loadAllSlots();
@@ -560,27 +494,36 @@ byId('backupJSON').addEventListener('click', ()=>{
   const blob = new Blob([JSON.stringify(data[slot], null, 2)], {type:'application/json;charset=utf-8'});
   saveAs(blob, safeName(`backup_slot_${slot}.json`));
 });
-
 byId('saveSlot').addEventListener('click', saveSlot);
 byId('loadSlot').addEventListener('click', loadSlot);
 byId('clearSlot').addEventListener('click', clearSlot);
 byId('wipeAll').addEventListener('click', wipeAll);
 
+/* Disparo automático ao colar / digitar no textarea */
+const pasteArea = byId('paste');
+pasteArea.addEventListener('paste', ()=>{
+  if(autoParseTimer) clearTimeout(autoParseTimer);
+  autoParseTimer = setTimeout(autoParseNow, 250);
+});
+pasteArea.addEventListener('input', ()=>{
+  if(autoParseTimer) clearTimeout(autoParseTimer);
+  autoParseTimer = setTimeout(autoParseNow, 400);
+});
+
+/* Exemplo rápido */
 byId('sample').addEventListener('click', ()=>{
   const demo = [
-    ['Prefixo','Dependência','Orçado Vida','Realizado Vida','% Vida','Orçado Prestamista','Realizado Prestamista','% Prestamista','Orçado Patrimônio','Realizado Patrimônio','% Patrimônio'],
-    ['01','Agência Alfa','10.000','8.500','85%','5.000','5.500','110%','2.000','1.000','50%'],
-    ['01','Agência Beta','7.500','7.500','100%','3.000','2.100','70%','1.500','2.250','150%'],
-    ['02','Agência Gama','12.000','9.000','75%','4.000','3.200','80%','1.000','900','90%']
+    ['Prefixo','AgÃªncia','OrÃ§ado Vida','Realizado Vida','% Atingimento Vida','OrÃ§ado Prestamista','Realizado Prestamista','% Atingimento Prestamista'],
+    ['01','Agência Alfa','10.000','8.500','85%','5.000','5.500','110%'],
+    ['01','Agência Beta','7.500','7.500','100%','3.000','2.100','70%'],
+    ['02','Agência Gama','12.000','9.000','75%','4.000','3.200','80%']
   ];
   const tsv = demo.map(r=>r.join('\t')).join('\n');
   byId('paste').value = tsv;
-  byId('status').textContent = 'Exemplo carregado — clique em "Ler & Detectar colunas".';
+  autoParseNow();
 });
 
-function safeName(s){
-  return (s||'').replace(/[^\w\s\-\._]/g,'_').replace(/\s+/g,'_');
-}
+function safeName(s){ return (s||'').replace(/[^\w\s\-\._]/g,'_').replace(/\s+/g,'_'); }
 
 /* inicialização */
 initSlots();
